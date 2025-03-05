@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZED ROM</title>
+  <link rel="icon" href="https://i.imgur.com/ZbxcrYY.png" type="image/png">
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <style>
+    body { background: #0d0d0d; color: #00ff00; font-family: 'Courier New', monospace; }
+    #messages div { transition: opacity 1s ease-in-out; }
+    .system-msg { color: red; }
+    .online { color: #00ff00; margin-right: 5px; }
+    .topic { color: #ff0000; font-weight: bold; }
+    
+  </style>
+    
+</head>
+
+<body class="flex justify-center items-center h-screen">
+  <div class="w-full lg:w-3/4 xl:w-2/3 p-5 bg-black border border-green-500 rounded-lg"> <!-- تغییر عرض -->
+    <h1 class="text-center text-3xl mb-4">ZED ROM</h1>
+    <div id="userForm">
+      <input id="username" type="text" class="w-full p-2 mb-2 bg-black text-green-400 border border-green-500" placeholder="نام کاربری">
+      <button onclick="generatePassword()" class="w-full p-2 bg-green-500 mb-2">دریافت رمز</button>
+      <input id="password" type="text" readonly class="w-full p-2 mb-2 bg-black text-green-400 border border-green-500">
+      <button onclick="register()" class="w-full p-2 bg-blue-500">ثبت‌نام</button>
+    </div>
+    <div id="chatRoom" class="hidden">
+      <div id="messages" class="h-96 overflow-y-scroll bg-black border border-green-500 p-3 mb-4 rounded-lg"></div> <!-- اینجا فضای بیشتر -->
+      <div class="flex">
+        <input type="text" id="msg" class="w-full p-3 bg-black text-green-400 border border-green-500 rounded-l-lg" placeholder="پیام خود را بنویسید...">
+        <button onclick="sendMessage()" class="w-16 bg-blue-500 p-3 rounded-r-lg">ارسال</button>
+      </div>
+      <button onclick="logout()" class="w-full bg-red-500 mt-2">خروج</button>
+    </div>
+  </div>
+  
+
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+<script src="config.js"></script>
+
+<script>
+  
+  
+ 
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db = firebase.database();
+
+  
+  function generatePassword() {
+    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
+    let pass = "";
+    for (let i = 0; i < 12; i++) {
+      pass += chars[Math.floor(Math.random() * chars.length)];
+    }
+    document.getElementById("password").value = pass;
+  }
+
+ 
+  function register() {
+  const username = document.getElementById("username").value;
+  const password = document.getElementById("password").value;
+
+  if (username.toLowerCase() === "zed") {
+    alert("استفاده از نام کاربری 'zed' مجاز نیست.");
+    return;
+  }
+
+  auth.createUserWithEmailAndPassword(username + "@fakeemail.com", password)
+    .then((userCredential) => {
+      const user = userCredential.user;
+
+      
+      user.updateProfile({
+        displayName: username,
+      }).then(() => {
+
+        
+        const userRef = db.ref('users/' + user.uid);
+          userRef.set({
+            username: username,
+            online: true,
+            timestamp: Date.now()
+          });
+
+          
+          const totalUsersRef = db.ref('stats/totalUsers');
+          totalUsersRef.transaction((current) => {
+            return (current || 0) + 1;
+          });
+        
+        document.getElementById("userForm").classList.add("hidden");
+        document.getElementById("chatRoom").classList.remove("hidden");
+        loadMessages();  
+      });
+    })
+    .catch((error) => {
+      console.error("خطا در ثبت‌نام:", error.message);
+      alert("خطا در ثبت‌نام");
+    });
+}
+
+
+  
+  function sendMessage() {
+    const msg = document.getElementById("msg").value.trim();
+    if (msg) {
+      const user = auth.currentUser;
+      const messageRef = db.ref('messages');
+      messageRef.push({
+        user: user.displayName,
+        text: msg,
+        timestamp: Date.now()
+      });
+      document.getElementById("msg").value = "";
+    } else {
+      alert("لطفاً یک پیام وارد کنید.");
+    }
+  }
+
+ 
+  function trackUserOnlineStatus(uid) {
+    const userRef = db.ref('users/' + uid);
+    currentUserRef = userRef; 
+
+    
+    userRef.onDisconnect().update({ online: false });
+
+   
+    userRef.update({ online: true });
+  }
+
+  function loadMessages() {
+    const messagesRef = db.ref('messages');
+    messagesRef.on('child_added', function(snapshot) {
+      const message = snapshot.val();
+      const div = document.createElement("div");
+      
+      const messageText = convertLinksToClickable(message.text);
+      div.innerHTML = `<span class="online">●</span><strong style="color: blue;">${message.user}</strong>: ${messageText}`;
+      document.getElementById("messages").appendChild(div);
+      setTimeout(() => { div.style.opacity = 0; setTimeout(() => div.remove(), 1000); }, 20000);
+    });
+  }
+
+  
+  function convertLinksToClickable(text) {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    return text.replace(urlRegex, function(url) {
+      return `<a href="${url}" target="_blank" class="text-blue-500">${url}</a>`;
+    });
+  }
+
+function updateUserStats() {
+    const onlineUsersRef = db.ref('users').orderByChild('online').equalTo(true);
+    const totalUsersRef = db.ref('stats/totalUsers');
+
+    
+    onlineUsersRef.on('value', function(snapshot) {
+      const onlineUsers = snapshot.numChildren();
+      
+      totalUsersRef.once('value').then(function(totalSnapshot) {
+        const totalUsersCount = totalSnapshot.val() || 0;
+        document.getElementById("userStats").innerText = `${totalUsersCount}/${onlineUsers}`;
+      });
+    });
+  }
+  
+document.getElementById("msg").addEventListener("keydown", function(event) {
+  if (event.key === "Enter") {
+    event.preventDefault(); 
+    sendMessage();
+  }
+});
+
+ 
+  function logout() {
+    auth.signOut().then(() => {
+      document.getElementById("userForm").classList.remove("hidden");
+      document.getElementById("chatRoom").classList.add("hidden");
+    });
+  }
+  
+  firebase.auth().onAuthStateChanged(function(user) {
+    if (user) {
+      updateUserStats();  
+    }
+  });
+</script>
+
+<div id="userStats" class="absolute bottom-5 left-5 text-green-500 text-lg">
+  🗿/🗿
+</div>
+</body>
+</html>
